@@ -30,9 +30,9 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            runner: macos-15  # Apple Silicon (Sequoia)
+            runner: macos-15
           - arch: x86_64
-            runner: macos-15-intel  # Intel (Sequoia)
+            runner: macos-15-intel
     
     steps:
       - name: Checkout
@@ -51,10 +51,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Update Homebrew (but don't upgrade already installed packages)
           brew update
-          
-          # Install packages (will skip if already cached and installed)
           brew install \
             pkg-config \
             nasm \
@@ -87,18 +84,7 @@ jobs:
             rtmpdump
 
       - name: Clean up Homebrew cache
-        run: |
-          # Remove outdated downloads to keep cache size manageable
-          brew cleanup
-
-      - name: Debug pkg-config paths
-        run: |
-          echo "🔍 Homebrew prefix: $(brew --prefix)"
-          echo "🔍 OpenJPEG location: $(brew --prefix openjpeg)"
-          echo "🔍 Checking for libopenjp2.pc:"
-          find $(brew --prefix) -name "libopenjp2.pc" 2>/dev/null || echo "Not found in standard locations"
-          echo "🔍 PKG_CONFIG_PATH will be set to:"
-          echo "$(brew --prefix)/lib/pkgconfig:$(brew --prefix openjpeg)/lib/pkgconfig"
+        run: brew cleanup
 
       - name: Download FFmpeg source
         run: |
@@ -113,19 +99,13 @@ jobs:
         run: |
           cd ffmpeg-source
           
-          # Detect Homebrew prefix
           BREW_PREFIX=$(brew --prefix)
           OPENJPEG_PREFIX=$(brew --prefix openjpeg)
           
-          # Set up comprehensive paths
           export PKG_CONFIG_PATH="${BREW_PREFIX}/lib/pkgconfig:${OPENJPEG_PREFIX}/lib/pkgconfig"
           export LDFLAGS="-L${BREW_PREFIX}/lib -L${OPENJPEG_PREFIX}/lib"
           export CPPFLAGS="-I${BREW_PREFIX}/include -I${OPENJPEG_PREFIX}/include"
           export CFLAGS="-I${BREW_PREFIX}/include -I${OPENJPEG_PREFIX}/include"
-          
-          # Verify pkg-config can find openjpeg
-          echo "🧪 Testing pkg-config for libopenjp2:"
-          pkg-config --modversion libopenjp2 || echo "⚠️  libopenjp2 not found via pkg-config"
           
           ./configure \
             --extra-version=universal-$(date +%Y-%m-%d) \
@@ -133,7 +113,6 @@ jobs:
             --cc=/usr/bin/clang \
             --enable-pthreads \
             --enable-runtime-cpudetect \
-            --pkg-config-flags="--static" \
             --enable-version3 \
             --prefix=$PWD/build \
             --disable-ffplay \
@@ -177,11 +156,9 @@ jobs:
           make -j$(sysctl -n hw.ncpu)
           make install
           
-          # Verify architecture
           echo "🔍 Built binary architecture:"
           lipo -info build/bin/ffmpeg
           
-          # Copy binaries
           cp build/bin/ffmpeg ../ffmpeg-${{ matrix.arch }}
           cp build/bin/ffprobe ../ffprobe-${{ matrix.arch }}
 
