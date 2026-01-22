@@ -10,6 +10,7 @@ on:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
+      - 'LICENSE'
   pull_request:
     branches:
       - main
@@ -21,12 +22,20 @@ on:
         required: false
         default: 'master'
         type: string
+      doRelease:
+        description: 'Publish as GitHub Release'
+        type: boolean
+        default: false
+        required: false
+  schedule:
+    - cron: '15 3 * * 0'
 
 jobs:
   build-arch-binaries:
     name: Build FFmpeg for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: arm64
@@ -115,6 +124,8 @@ jobs:
             --enable-runtime-cpudetect \
             --enable-version3 \
             --prefix=$PWD/build \
+            --enable-static \
+            --disable-shared \
             --disable-ffplay \
             --disable-debug \
             --disable-doc \
@@ -159,6 +170,9 @@ jobs:
           echo "🔍 Built binary architecture:"
           lipo -info build/bin/ffmpeg
           
+          echo "🔍 Checking dynamic dependencies:"
+          otool -L build/bin/ffmpeg | head -20
+          
           cp build/bin/ffmpeg ../ffmpeg-${{ matrix.arch }}
           cp build/bin/ffprobe ../ffprobe-${{ matrix.arch }}
 
@@ -178,6 +192,9 @@ jobs:
     runs-on: macos-15
     
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download arm64 binaries
         uses: actions/download-artifact@v4
         with:
@@ -207,35 +224,90 @@ jobs:
           lipo -info ffprobe
           
           echo ""
+          echo "🔍 Checking dynamic dependencies:"
+          otool -L ffmpeg | head -20
+          
+          echo ""
           echo "📊 Testing ffmpeg..."
           ./ffmpeg -version
 
-      - name: Create archive
+      - name: Create archives
         run: |
           mkdir -p ffmpeg-universal-macos
           cp ffmpeg ffmpeg-universal-macos/
           cp ffprobe ffmpeg-universal-macos/
-          
           ./ffmpeg -version > ffmpeg-universal-macos/VERSION.txt
           
           tar -czf ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos/
           zip -r ffmpeg-universal-macos.zip ffmpeg-universal-macos/
 
+      - name: Generate checksums
+        run: |
+          sha256sum ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos.zip > checksums.sha256
+          cat checksums.sha256
+
       - name: Upload universal binaries
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}-${{ github.sha }}
+          name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}
           path: |
             ffmpeg-universal-macos.tar.gz
             ffmpeg-universal-macos.zip
+            checksums.sha256
           retention-days: 90
 
-      - name: Create Release on Tag
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+  publish-release:
+    name: Publish Release
+    if: |
+      !cancelled() && 
+      needs.create-universal-binary.result == 'success' &&
+      (github.event.inputs.doRelease == 'true' || 
+       github.event_name == 'schedule' || 
+       startsWith(github.ref, 'refs/tags/'))
+    needs: create-universal-binary
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
-          files: |
-            ffmpeg-universal-macos.tar.gz
-            ffmpeg-universal-macos.zip
+          pattern: ffmpeg-universal-macos-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Create release
+        run: |
+          set -xe
+          RELDATE="$(date +'%Y-%m-%d %H:%M')"
+          TAGNAME="autobuild-$(date +'%Y-%m-%d-%H-%M')"
+          NAME="FFmpeg Universal macOS - $RELDATE"
+          
+          gh release create "$TAGNAME" \
+            --target "${{ github.ref_name }}" \
+            --title "$NAME" \
+            --notes "Automated universal macOS build of FFmpeg" \
+            artifacts/*.{tar.gz,zip,sha256}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Update latest release
+        if: github.event_name == 'schedule' || github.event.inputs.doRelease == 'true'
+        run: |
+          set -xe
+          RELDATE="$(date +'%Y-%m-%d %H:%M')"
+          NAME="Latest FFmpeg Universal macOS ($RELDATE)"
+          TAGNAME="latest"
+          
+          gh release delete --cleanup-tag --yes "$TAGNAME" 2>/dev/null || true
+          sleep 5
+          
+          gh release create "$TAGNAME" \
+            --target "${{ github.ref_name }}" \
+            --title "$NAME" \
+            --notes "Latest automated universal macOS build of FFmpeg" \
+            artifacts/*.{tar.gz,zip,sha256}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
