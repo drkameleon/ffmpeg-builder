@@ -1,6 +1,19 @@
 name: Build Universal FFmpeg
 
 on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  pull_request:
+    branches:
+      - main
+      - master
   workflow_dispatch:
     inputs:
       ffmpeg_version:
@@ -53,7 +66,8 @@ jobs:
 
       - name: Download FFmpeg source
         run: |
-          git clone --depth 1 --branch ${{ inputs.ffmpeg_version }} https://git.ffmpeg.org/ffmpeg.git ffmpeg-source
+          FFMPEG_VER="${{ inputs.ffmpeg_version || 'master' }}"
+          git clone --depth 1 --branch "$FFMPEG_VER" https://git.ffmpeg.org/ffmpeg.git ffmpeg-source
           cd ffmpeg-source
           echo "FFMPEG_VERSION=$(git describe --tags --always)" >> $GITHUB_ENV
 
@@ -68,7 +82,7 @@ jobs:
           ./configure \
             --extra-version=universal-$(date +%Y-%m-%d) \
             --extra-cflags="-fno-stack-check" \
-            --cc=clang \
+            --cc=/usr/bin/clang \
             --arch=arm64 \
             --enable-cross-compile \
             --enable-pthreads \
@@ -112,18 +126,14 @@ jobs:
             --enable-libzimg \
             --enable-openssl \
             --enable-librtmp \
-            --enable-muxer=mp4 \
-            --enable-gpl \
-            --enable-nonfree
+            --enable-muxer=mp4
           
           make -j$(sysctl -n hw.ncpu)
           make install
           
-          # Copy binaries
           cp build-arm64/bin/ffmpeg ../ffmpeg-arm64
           cp build-arm64/bin/ffprobe ../ffprobe-arm64
           
-          # Clean for next build
           make clean
 
       - name: Build FFmpeg for x86_64
@@ -137,7 +147,7 @@ jobs:
           ./configure \
             --extra-version=universal-$(date +%Y-%m-%d) \
             --extra-cflags="-fno-stack-check" \
-            --cc=clang \
+            --cc=/usr/bin/clang \
             --arch=x86_64 \
             --enable-cross-compile \
             --enable-pthreads \
@@ -181,14 +191,11 @@ jobs:
             --enable-libzimg \
             --enable-openssl \
             --enable-librtmp \
-            --enable-muxer=mp4 \
-            --enable-gpl \
-            --enable-nonfree
+            --enable-muxer=mp4
           
           make -j$(sysctl -n hw.ncpu)
           make install
           
-          # Copy binaries
           cp build-x86_64/bin/ffmpeg ../ffmpeg-x86_64
           cp build-x86_64/bin/ffprobe ../ffprobe-x86_64
 
@@ -213,7 +220,6 @@ jobs:
           cp ffmpeg ffmpeg-universal-macos/
           cp ffprobe ffmpeg-universal-macos/
           
-          # Add version info
           ./ffmpeg -version > ffmpeg-universal-macos/VERSION.txt
           
           tar -czf ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos/
@@ -222,20 +228,16 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}
+          name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}-${{ github.sha }}
           path: |
             ffmpeg-universal-macos.tar.gz
             ffmpeg-universal-macos.zip
           retention-days: 90
 
-      - name: Create Release (optional)
-        if: github.event_name == 'workflow_dispatch'
+      - name: Create Release on Tag
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ffmpeg-${{ env.FFMPEG_VERSION }}-universal
-          name: FFmpeg ${{ env.FFMPEG_VERSION }} Universal macOS
-          draft: false
-          prerelease: false
           files: |
             ffmpeg-universal-macos.tar.gz
             ffmpeg-universal-macos.zip
