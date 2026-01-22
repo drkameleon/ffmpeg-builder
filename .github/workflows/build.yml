@@ -12,7 +12,7 @@ on:
 jobs:
   build-universal-ffmpeg:
     name: Build Universal FFmpeg for macOS
-    runs-on: macos-14  # Apple Silicon runner for faster arm64 builds
+    runs-on: macos-14
     
     steps:
       - name: Checkout
@@ -72,7 +72,6 @@ jobs:
             --arch=arm64 \
             --enable-cross-compile \
             --enable-pthreads \
-            --enable-postproc \
             --enable-runtime-cpudetect \
             --pkg-config-flags="--static" \
             --enable-version3 \
@@ -90,8 +89,8 @@ jobs:
             --enable-libfdk-aac \
             --enable-encoder=aac \
             --enable-libtwolame \
-            --enable-libopencore_amrnb \
-            --enable-libopencore_amrwb \
+            --enable-libopencore-amrnb \
+            --enable-libopencore-amrwb \
             --enable-libgsm \
             --enable-libopenh264 \
             --enable-libvpx \
@@ -101,7 +100,7 @@ jobs:
             --enable-libfribidi \
             --enable-libass \
             --enable-libsrt \
-            --enable-libfontconfig \
+            --enable-fontconfig \
             --enable-bzlib \
             --enable-zlib \
             --enable-lzma \
@@ -113,7 +112,9 @@ jobs:
             --enable-libzimg \
             --enable-openssl \
             --enable-librtmp \
-            --enable-muxer=mp4
+            --enable-muxer=mp4 \
+            --enable-gpl \
+            --enable-nonfree
           
           make -j$(sysctl -n hw.ncpu)
           make install
@@ -140,7 +141,6 @@ jobs:
             --arch=x86_64 \
             --enable-cross-compile \
             --enable-pthreads \
-            --enable-postproc \
             --enable-runtime-cpudetect \
             --pkg-config-flags="--static" \
             --enable-version3 \
@@ -158,8 +158,8 @@ jobs:
             --enable-libfdk-aac \
             --enable-encoder=aac \
             --enable-libtwolame \
-            --enable-libopencore_amrnb \
-            --enable-libopencore_amrwb \
+            --enable-libopencore-amrnb \
+            --enable-libopencore-amrwb \
             --enable-libgsm \
             --enable-libopenh264 \
             --enable-libvpx \
@@ -169,7 +169,7 @@ jobs:
             --enable-libfribidi \
             --enable-libass \
             --enable-libsrt \
-            --enable-libfontconfig \
+            --enable-fontconfig \
             --enable-bzlib \
             --enable-zlib \
             --enable-lzma \
@@ -181,7 +181,9 @@ jobs:
             --enable-libzimg \
             --enable-openssl \
             --enable-librtmp \
-            --enable-muxer=mp4
+            --enable-muxer=mp4 \
+            --enable-gpl \
+            --enable-nonfree
           
           make -j$(sysctl -n hw.ncpu)
           make install
