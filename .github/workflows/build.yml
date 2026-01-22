@@ -23,9 +23,16 @@ on:
         type: string
 
 jobs:
-  build-universal-ffmpeg:
-    name: Build Universal FFmpeg for macOS
-    runs-on: macos-14
+  build-arch-binaries:
+    name: Build FFmpeg for ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15  # Apple Silicon (Sequoia)
+          - arch: x86_64
+            runner: macos-15-intel  # Intel (Sequoia)
     
     steps:
       - name: Checkout
@@ -69,27 +76,30 @@ jobs:
           FFMPEG_VER="${{ inputs.ffmpeg_version || 'master' }}"
           git clone --depth 1 --branch "$FFMPEG_VER" https://git.ffmpeg.org/ffmpeg.git ffmpeg-source
           cd ffmpeg-source
-          echo "FFMPEG_VERSION=$(git describe --tags --always)" >> $GITHUB_ENV
+          FFMPEG_VERSION=$(git describe --tags --always)
+          echo "FFMPEG_VERSION=$FFMPEG_VERSION" >> $GITHUB_ENV
+          echo "FFMPEG_VERSION=$FFMPEG_VERSION" > ../ffmpeg_version.txt
 
-      - name: Build FFmpeg for arm64
+      - name: Build FFmpeg natively for ${{ matrix.arch }}
         run: |
           cd ffmpeg-source
           
-          export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
-          export LDFLAGS="-L/opt/homebrew/lib"
-          export CPPFLAGS="-I/opt/homebrew/include"
+          # Detect Homebrew prefix automatically
+          BREW_PREFIX=$(brew --prefix)
+          
+          export PKG_CONFIG_PATH="${BREW_PREFIX}/lib/pkgconfig:${BREW_PREFIX}/opt/openjpeg/lib/pkgconfig"
+          export LDFLAGS="-L${BREW_PREFIX}/lib -L${BREW_PREFIX}/opt/openjpeg/lib"
+          export CPPFLAGS="-I${BREW_PREFIX}/include -I${BREW_PREFIX}/opt/openjpeg/include"
           
           ./configure \
             --extra-version=universal-$(date +%Y-%m-%d) \
             --extra-cflags="-fno-stack-check" \
             --cc=/usr/bin/clang \
-            --arch=arm64 \
-            --enable-cross-compile \
             --enable-pthreads \
             --enable-runtime-cpudetect \
             --pkg-config-flags="--static" \
             --enable-version3 \
-            --prefix=$PWD/build-arm64 \
+            --prefix=$PWD/build \
             --disable-ffplay \
             --disable-debug \
             --disable-doc \
@@ -131,78 +141,51 @@ jobs:
           make -j$(sysctl -n hw.ncpu)
           make install
           
-          cp build-arm64/bin/ffmpeg ../ffmpeg-arm64
-          cp build-arm64/bin/ffprobe ../ffprobe-arm64
+          # Verify architecture
+          echo "🔍 Built binary architecture:"
+          lipo -info build/bin/ffmpeg
           
-          make clean
+          # Copy binaries
+          cp build/bin/ffmpeg ../ffmpeg-${{ matrix.arch }}
+          cp build/bin/ffprobe ../ffprobe-${{ matrix.arch }}
 
-      - name: Build FFmpeg for x86_64
+      - name: Upload ${{ matrix.arch }} binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.arch }}
+          path: |
+            ffmpeg-${{ matrix.arch }}
+            ffprobe-${{ matrix.arch }}
+            ffmpeg_version.txt
+          retention-days: 1
+
+  create-universal-binary:
+    name: Create Universal Binary
+    needs: build-arch-binaries
+    runs-on: macos-15
+    
+    steps:
+      - name: Download arm64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-arm64
+          path: ./arm64
+
+      - name: Download x86_64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-x86_64
+          path: ./x86_64
+
+      - name: Read FFmpeg version
         run: |
-          cd ffmpeg-source
-          
-          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
-          export LDFLAGS="-L/usr/local/lib"
-          export CPPFLAGS="-I/usr/local/include"
-          
-          ./configure \
-            --extra-version=universal-$(date +%Y-%m-%d) \
-            --extra-cflags="-fno-stack-check" \
-            --cc=/usr/bin/clang \
-            --arch=x86_64 \
-            --enable-cross-compile \
-            --enable-pthreads \
-            --enable-runtime-cpudetect \
-            --pkg-config-flags="--static" \
-            --enable-version3 \
-            --prefix=$PWD/build-x86_64 \
-            --disable-ffplay \
-            --disable-debug \
-            --disable-doc \
-            --enable-avfilter \
-            --enable-filters \
-            --enable-libopus \
-            --enable-libtheora \
-            --enable-libvorbis \
-            --enable-libspeex \
-            --enable-libmp3lame \
-            --enable-libfdk-aac \
-            --enable-encoder=aac \
-            --enable-libtwolame \
-            --enable-libopencore-amrnb \
-            --enable-libopencore-amrwb \
-            --enable-libgsm \
-            --enable-libopenh264 \
-            --enable-libvpx \
-            --enable-libaom \
-            --enable-libdav1d \
-            --enable-libfreetype \
-            --enable-libfribidi \
-            --enable-libass \
-            --enable-libsrt \
-            --enable-fontconfig \
-            --enable-bzlib \
-            --enable-zlib \
-            --enable-lzma \
-            --enable-libsnappy \
-            --enable-libopenjpeg \
-            --enable-libwebp \
-            --enable-opengl \
-            --enable-opencl \
-            --enable-libzimg \
-            --enable-openssl \
-            --enable-librtmp \
-            --enable-muxer=mp4
-          
-          make -j$(sysctl -n hw.ncpu)
-          make install
-          
-          cp build-x86_64/bin/ffmpeg ../ffmpeg-x86_64
-          cp build-x86_64/bin/ffprobe ../ffprobe-x86_64
+          FFMPEG_VERSION=$(cat ./arm64/ffmpeg_version.txt)
+          echo "FFMPEG_VERSION=$FFMPEG_VERSION" >> $GITHUB_ENV
 
       - name: Create universal binaries
         run: |
-          lipo -create ffmpeg-arm64 ffmpeg-x86_64 -output ffmpeg
-          lipo -create ffprobe-arm64 ffprobe-x86_64 -output ffprobe
+          lipo -create ./arm64/ffmpeg-arm64 ./x86_64/ffmpeg-x86_64 -output ffmpeg
+          lipo -create ./arm64/ffprobe-arm64 ./x86_64/ffprobe-x86_64 -output ffprobe
           
           chmod +x ffmpeg ffprobe
           
@@ -225,7 +208,7 @@ jobs:
           tar -czf ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos/
           zip -r ffmpeg-universal-macos.zip ffmpeg-universal-macos/
 
-      - name: Upload artifacts
+      - name: Upload universal binaries
         uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}-${{ github.sha }}
