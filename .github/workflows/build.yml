@@ -1,0 +1,241 @@
+name: Build Universal FFmpeg
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_version:
+        description: 'FFmpeg version/commit (e.g., n7.1 or master)'
+        required: false
+        default: 'master'
+        type: string
+
+jobs:
+  build-universal-ffmpeg:
+    name: Build Universal FFmpeg for macOS
+    runs-on: macos-14  # Apple Silicon runner for faster arm64 builds
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install \
+            pkg-config \
+            nasm \
+            yasm \
+            opus \
+            theora \
+            vorbis-tools \
+            speex \
+            lame \
+            fdk-aac \
+            twolame \
+            opencore-amr \
+            gsm \
+            openh264 \
+            libvpx \
+            aom \
+            dav1d \
+            freetype \
+            fribidi \
+            libass \
+            srt \
+            fontconfig \
+            bzip2 \
+            xz \
+            snappy \
+            openjpeg \
+            webp \
+            zimg \
+            openssl@3 \
+            rtmpdump
+
+      - name: Download FFmpeg source
+        run: |
+          git clone --depth 1 --branch ${{ inputs.ffmpeg_version }} https://git.ffmpeg.org/ffmpeg.git ffmpeg-source
+          cd ffmpeg-source
+          echo "FFMPEG_VERSION=$(git describe --tags --always)" >> $GITHUB_ENV
+
+      - name: Build FFmpeg for arm64
+        run: |
+          cd ffmpeg-source
+          
+          export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig"
+          export LDFLAGS="-L/opt/homebrew/lib"
+          export CPPFLAGS="-I/opt/homebrew/include"
+          
+          ./configure \
+            --extra-version=universal-$(date +%Y-%m-%d) \
+            --extra-cflags="-fno-stack-check" \
+            --cc=clang \
+            --arch=arm64 \
+            --enable-cross-compile \
+            --enable-pthreads \
+            --enable-postproc \
+            --enable-runtime-cpudetect \
+            --pkg-config-flags="--static" \
+            --enable-version3 \
+            --prefix=$PWD/build-arm64 \
+            --disable-ffplay \
+            --disable-debug \
+            --disable-doc \
+            --enable-avfilter \
+            --enable-filters \
+            --enable-libopus \
+            --enable-libtheora \
+            --enable-libvorbis \
+            --enable-libspeex \
+            --enable-libmp3lame \
+            --enable-libfdk-aac \
+            --enable-encoder=aac \
+            --enable-libtwolame \
+            --enable-libopencore_amrnb \
+            --enable-libopencore_amrwb \
+            --enable-libgsm \
+            --enable-libopenh264 \
+            --enable-libvpx \
+            --enable-libaom \
+            --enable-libdav1d \
+            --enable-libfreetype \
+            --enable-libfribidi \
+            --enable-libass \
+            --enable-libsrt \
+            --enable-libfontconfig \
+            --enable-bzlib \
+            --enable-zlib \
+            --enable-lzma \
+            --enable-libsnappy \
+            --enable-libopenjpeg \
+            --enable-libwebp \
+            --enable-opengl \
+            --enable-opencl \
+            --enable-libzimg \
+            --enable-openssl \
+            --enable-librtmp \
+            --enable-muxer=mp4
+          
+          make -j$(sysctl -n hw.ncpu)
+          make install
+          
+          # Copy binaries
+          cp build-arm64/bin/ffmpeg ../ffmpeg-arm64
+          cp build-arm64/bin/ffprobe ../ffprobe-arm64
+          
+          # Clean for next build
+          make clean
+
+      - name: Build FFmpeg for x86_64
+        run: |
+          cd ffmpeg-source
+          
+          export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+          export LDFLAGS="-L/usr/local/lib"
+          export CPPFLAGS="-I/usr/local/include"
+          
+          ./configure \
+            --extra-version=universal-$(date +%Y-%m-%d) \
+            --extra-cflags="-fno-stack-check" \
+            --cc=clang \
+            --arch=x86_64 \
+            --enable-cross-compile \
+            --enable-pthreads \
+            --enable-postproc \
+            --enable-runtime-cpudetect \
+            --pkg-config-flags="--static" \
+            --enable-version3 \
+            --prefix=$PWD/build-x86_64 \
+            --disable-ffplay \
+            --disable-debug \
+            --disable-doc \
+            --enable-avfilter \
+            --enable-filters \
+            --enable-libopus \
+            --enable-libtheora \
+            --enable-libvorbis \
+            --enable-libspeex \
+            --enable-libmp3lame \
+            --enable-libfdk-aac \
+            --enable-encoder=aac \
+            --enable-libtwolame \
+            --enable-libopencore_amrnb \
+            --enable-libopencore_amrwb \
+            --enable-libgsm \
+            --enable-libopenh264 \
+            --enable-libvpx \
+            --enable-libaom \
+            --enable-libdav1d \
+            --enable-libfreetype \
+            --enable-libfribidi \
+            --enable-libass \
+            --enable-libsrt \
+            --enable-libfontconfig \
+            --enable-bzlib \
+            --enable-zlib \
+            --enable-lzma \
+            --enable-libsnappy \
+            --enable-libopenjpeg \
+            --enable-libwebp \
+            --enable-opengl \
+            --enable-opencl \
+            --enable-libzimg \
+            --enable-openssl \
+            --enable-librtmp \
+            --enable-muxer=mp4
+          
+          make -j$(sysctl -n hw.ncpu)
+          make install
+          
+          # Copy binaries
+          cp build-x86_64/bin/ffmpeg ../ffmpeg-x86_64
+          cp build-x86_64/bin/ffprobe ../ffprobe-x86_64
+
+      - name: Create universal binaries
+        run: |
+          lipo -create ffmpeg-arm64 ffmpeg-x86_64 -output ffmpeg
+          lipo -create ffprobe-arm64 ffprobe-x86_64 -output ffprobe
+          
+          chmod +x ffmpeg ffprobe
+          
+          echo "🔍 Verifying universal binaries..."
+          lipo -info ffmpeg
+          lipo -info ffprobe
+          
+          echo ""
+          echo "📊 Testing ffmpeg..."
+          ./ffmpeg -version
+
+      - name: Create archive
+        run: |
+          mkdir -p ffmpeg-universal-macos
+          cp ffmpeg ffmpeg-universal-macos/
+          cp ffprobe ffmpeg-universal-macos/
+          
+          # Add version info
+          ./ffmpeg -version > ffmpeg-universal-macos/VERSION.txt
+          
+          tar -czf ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos/
+          zip -r ffmpeg-universal-macos.zip ffmpeg-universal-macos/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}
+          path: |
+            ffmpeg-universal-macos.tar.gz
+            ffmpeg-universal-macos.zip
+          retention-days: 90
+
+      - name: Create Release (optional)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ffmpeg-${{ env.FFMPEG_VERSION }}-universal
+          name: FFmpeg ${{ env.FFMPEG_VERSION }} Universal macOS
+          draft: false
+          prerelease: false
+          files: |
+            ffmpeg-universal-macos.tar.gz
+            ffmpeg-universal-macos.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
