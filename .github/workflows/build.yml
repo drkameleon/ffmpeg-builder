@@ -26,13 +26,13 @@ jobs:
             yasm \
             opus \
             theora \
-            vorbis-tools \
+            libvorbis \
             speex \
             lame \
             fdk-aac \
             twolame \
             opencore-amr \
-            gsm \
+            libgsm \
             openh264 \
             libvpx \
             aom \
