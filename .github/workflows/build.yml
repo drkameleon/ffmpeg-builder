@@ -2,33 +2,14 @@ name: Build Universal FFmpeg
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - develop
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
-      - 'LICENSE'
-  pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master, develop]
+    paths-ignore: ['**.md', 'LICENSE']
   workflow_dispatch:
     inputs:
-      ffmpeg_version:
-        description: 'FFmpeg version/commit (e.g., n7.1 or master)'
-        required: false
-        default: 'master'
-        type: string
       doRelease:
         description: 'Publish as GitHub Release'
         type: boolean
         default: false
-        required: false
-  schedule:
-    - cron: '15 3 * * 0'
 
 jobs:
   build-arch-binaries:
@@ -47,161 +28,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Homebrew cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/Library/Caches/Homebrew
-            /opt/homebrew/Cellar
-            /usr/local/Cellar
-          key: ${{ runner.os }}-${{ matrix.arch }}-brew-${{ hashFiles('.github/workflows/build-ffmpeg.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-brew-
-
-      - name: Install dependencies
-        run: |
-          brew update
-          brew install \
-            pkg-config \
-            nasm \
-            yasm \
-            opus \
-            theora \
-            libvorbis \
-            speex \
-            lame \
-            fdk-aac \
-            twolame \
-            opencore-amr \
-            libgsm \
-            openh264 \
-            libvpx \
-            aom \
-            dav1d \
-            freetype \
-            fribidi \
-            libass \
-            srt \
-            fontconfig \
-            bzip2 \
-            xz \
-            snappy \
-            openjpeg \
-            webp \
-            zimg \
-            openssl@3 \
-            rtmpdump
-
-      - name: Clean up Homebrew cache
-        run: brew cleanup
-
-      - name: Download FFmpeg source
-        run: |
-          FFMPEG_VER="${{ inputs.ffmpeg_version || 'master' }}"
-          git clone --depth 1 --branch "$FFMPEG_VER" https://git.ffmpeg.org/ffmpeg.git ffmpeg-source
-          cd ffmpeg-source
-          FFMPEG_VERSION=$(git describe --tags --always)
-          echo "FFMPEG_VERSION=$FFMPEG_VERSION" >> $GITHUB_ENV
-          echo "FFMPEG_VERSION=$FFMPEG_VERSION" > ../ffmpeg_version.txt
-
       - name: Build FFmpeg natively for ${{ matrix.arch }}
         run: |
-          cd ffmpeg-source
+          chmod +x build-ffmpeg
+          # This script builds ALL dependencies from source as static libs
+          SKIPINSTALL=yes ./build-ffmpeg --build
           
-          BREW_PREFIX=$(brew --prefix)
-          
-          # Start with base Homebrew pkgconfig path
-          export PKG_CONFIG_PATH="${BREW_PREFIX}/lib/pkgconfig"
-          export LDFLAGS="-L${BREW_PREFIX}/lib"
-          export CPPFLAGS="-I${BREW_PREFIX}/include"
-          
-          # Automatically add ALL installed Homebrew packages' pkgconfig paths
-          echo "🔍 Collecting pkg-config paths from all Homebrew packages..."
-          for pkg in $(brew list --formula); do
-            PKG_PREFIX=$(brew --prefix "$pkg" 2>/dev/null || true)
-            if [ -n "$PKG_PREFIX" ] && [ -d "${PKG_PREFIX}/lib/pkgconfig" ]; then
-              export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${PKG_PREFIX}/lib/pkgconfig"
-            fi
-            if [ -n "$PKG_PREFIX" ] && [ -d "${PKG_PREFIX}/lib" ]; then
-              export LDFLAGS="${LDFLAGS} -L${PKG_PREFIX}/lib"
-            fi
-            if [ -n "$PKG_PREFIX" ] && [ -d "${PKG_PREFIX}/include" ]; then
-              export CPPFLAGS="${CPPFLAGS} -I${PKG_PREFIX}/include"
-            fi
-          done
-          
-          echo "✅ PKG_CONFIG_PATH configured with $(echo $PKG_CONFIG_PATH | tr ':' '\n' | wc -l) paths"
-          
-          # Verify critical packages are found
-          echo "🧪 Verifying pkg-config can find critical packages:"
-          for lib in aom libopenjp2 vpx dav1d; do
-            if pkg-config --exists "$lib"; then
-              echo "  ✅ $lib: $(pkg-config --modversion $lib)"
-            else
-              echo "  ❌ $lib: NOT FOUND"
-            fi
-          done
-          
-          ./configure \
-            --extra-version=universal-$(date +%Y-%m-%d) \
-            --extra-cflags="-fno-stack-check" \
-            --cc=/usr/bin/clang \
-            --enable-pthreads \
-            --enable-runtime-cpudetect \
-            --enable-version3 \
-            --prefix=$PWD/build \
-            --pkg-config-flags="--static" \
-            --enable-static \
-            --disable-shared \
-            --disable-ffplay \
-            --disable-debug \
-            --disable-doc \
-            --enable-avfilter \
-            --enable-filters \
-            --enable-libopus \
-            --enable-libtheora \
-            --enable-libvorbis \
-            --enable-libspeex \
-            --enable-libmp3lame \
-            --enable-libfdk-aac \
-            --enable-encoder=aac \
-            --enable-libtwolame \
-            --enable-libopencore-amrnb \
-            --enable-libopencore-amrwb \
-            --enable-libgsm \
-            --enable-libopenh264 \
-            --enable-libvpx \
-            --enable-libaom \
-            --enable-libdav1d \
-            --enable-libfreetype \
-            --enable-libfribidi \
-            --enable-libass \
-            --enable-libsrt \
-            --enable-fontconfig \
-            --enable-bzlib \
-            --enable-zlib \
-            --enable-lzma \
-            --enable-libsnappy \
-            --enable-libopenjpeg \
-            --enable-libwebp \
-            --enable-opengl \
-            --enable-opencl \
-            --enable-libzimg \
-            --enable-openssl \
-            --enable-librtmp \
-            --enable-muxer=mp4
-          
-          make -j$(sysctl -n hw.ncpu)
-          make install
+          # Get version
+          FFMPEG_VERSION=$(./workspace/bin/ffmpeg -version | head -n1 | cut -d' ' -f3)
+          echo "FFMPEG_VERSION=$FFMPEG_VERSION" > ffmpeg_version.txt
           
           echo "🔍 Built binary architecture:"
-          lipo -info build/bin/ffmpeg
+          lipo -info ./workspace/bin/ffmpeg
           
           echo "🔍 Checking dynamic dependencies:"
-          otool -L build/bin/ffmpeg | head -20
+          otool -L ./workspace/bin/ffmpeg | head -20
           
-          cp build/bin/ffmpeg ../ffmpeg-${{ matrix.arch }}
-          cp build/bin/ffprobe ../ffprobe-${{ matrix.arch }}
+          cp ./workspace/bin/ffmpeg ffmpeg-${{ matrix.arch }}
+          cp ./workspace/bin/ffprobe ffprobe-${{ matrix.arch }}
 
       - name: Upload ${{ matrix.arch }} binaries
         uses: actions/upload-artifact@v4
@@ -219,9 +63,6 @@ jobs:
     runs-on: macos-15
     
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Download arm64 binaries
         uses: actions/download-artifact@v4
         with:
@@ -252,7 +93,7 @@ jobs:
           
           echo ""
           echo "🔍 Checking dynamic dependencies:"
-          otool -L ffmpeg | head -20
+          otool -L ffmpeg
           
           echo ""
           echo "📊 Testing ffmpeg..."
@@ -270,7 +111,7 @@ jobs:
 
       - name: Generate checksums
         run: |
-          sha256sum ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos.zip > checksums.sha256
+          shasum -a 256 ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos.zip > checksums.sha256
           cat checksums.sha256
 
       - name: Upload universal binaries
@@ -281,60 +122,16 @@ jobs:
             ffmpeg-universal-macos.tar.gz
             ffmpeg-universal-macos.zip
             checksums.sha256
-          retention-days: 90
 
-  publish-release:
-    name: Publish Release
-    if: |
-      !cancelled() && 
-      needs.create-universal-binary.result == 'success' &&
-      (github.event.inputs.doRelease == 'true' || 
-       github.event_name == 'schedule' || 
-       startsWith(github.ref, 'refs/tags/'))
-    needs: create-universal-binary
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - name: Create Release
+        if: github.event.inputs.doRelease == 'true' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          pattern: ffmpeg-universal-macos-*
-          merge-multiple: true
-          path: artifacts
-
-      - name: Create release
-        run: |
-          set -xe
-          RELDATE="$(date +'%Y-%m-%d %H:%M')"
-          TAGNAME="autobuild-$(date +'%Y-%m-%d-%H-%M')"
-          NAME="FFmpeg Universal macOS - $RELDATE"
-          
-          gh release create "$TAGNAME" \
-            --target "${{ github.ref_name }}" \
-            --title "$NAME" \
-            --notes "Automated universal macOS build of FFmpeg" \
-            artifacts/*.{tar.gz,zip,sha256}
+          tag_name: ffmpeg-${{ env.FFMPEG_VERSION }}-universal
+          name: FFmpeg ${{ env.FFMPEG_VERSION }} Universal macOS
+          files: |
+            ffmpeg-universal-macos.tar.gz
+            ffmpeg-universal-macos.zip
+            checksums.sha256
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Update latest release
-        if: github.event_name == 'schedule' || github.event.inputs.doRelease == 'true'
-        run: |
-          set -xe
-          RELDATE="$(date +'%Y-%m-%d %H:%M')"
-          NAME="Latest FFmpeg Universal macOS ($RELDATE)"
-          TAGNAME="latest"
-          
-          gh release delete --cleanup-tag --yes "$TAGNAME" 2>/dev/null || true
-          sleep 5
-          
-          gh release create "$TAGNAME" \
-            --target "${{ github.ref_name }}" \
-            --title "$NAME" \
-            --notes "Latest automated universal macOS build of FFmpeg" \
-            artifacts/*.{tar.gz,zip,sha256}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
