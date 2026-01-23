@@ -110,25 +110,37 @@ jobs:
           
           BREW_PREFIX=$(brew --prefix)
           
-          # Build comprehensive PKG_CONFIG_PATH
+          # Start with base Homebrew pkgconfig path
           export PKG_CONFIG_PATH="${BREW_PREFIX}/lib/pkgconfig"
-          export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${BREW_PREFIX}/opt/openjpeg/lib/pkgconfig"
-          export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${BREW_PREFIX}/opt/openssl@3/lib/pkgconfig"
-          
           export LDFLAGS="-L${BREW_PREFIX}/lib"
           export CPPFLAGS="-I${BREW_PREFIX}/include"
-          export CFLAGS="-I${BREW_PREFIX}/include"
           
-          # Add library paths for common problematic packages
-          for pkg in openjpeg openssl@3 aom libvpx; do
-            if [ -d "${BREW_PREFIX}/opt/${pkg}" ]; then
-              export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${BREW_PREFIX}/opt/${pkg}/lib/pkgconfig"
-              export LDFLAGS="${LDFLAGS} -L${BREW_PREFIX}/opt/${pkg}/lib"
-              export CPPFLAGS="${CPPFLAGS} -I${BREW_PREFIX}/opt/${pkg}/include"
+          # Automatically add ALL installed Homebrew packages' pkgconfig paths
+          echo "🔍 Collecting pkg-config paths from all Homebrew packages..."
+          for pkg in $(brew list --formula); do
+            PKG_PREFIX=$(brew --prefix "$pkg" 2>/dev/null || true)
+            if [ -n "$PKG_PREFIX" ] && [ -d "${PKG_PREFIX}/lib/pkgconfig" ]; then
+              export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:${PKG_PREFIX}/lib/pkgconfig"
+            fi
+            if [ -n "$PKG_PREFIX" ] && [ -d "${PKG_PREFIX}/lib" ]; then
+              export LDFLAGS="${LDFLAGS} -L${PKG_PREFIX}/lib"
+            fi
+            if [ -n "$PKG_PREFIX" ] && [ -d "${PKG_PREFIX}/include" ]; then
+              export CPPFLAGS="${CPPFLAGS} -I${PKG_PREFIX}/include"
             fi
           done
           
-          echo "🔍 PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+          echo "✅ PKG_CONFIG_PATH configured with $(echo $PKG_CONFIG_PATH | tr ':' '\n' | wc -l) paths"
+          
+          # Verify critical packages are found
+          echo "🧪 Verifying pkg-config can find critical packages:"
+          for lib in aom libopenjp2 vpx dav1d; do
+            if pkg-config --exists "$lib"; then
+              echo "  ✅ $lib: $(pkg-config --modversion $lib)"
+            else
+              echo "  ❌ $lib: NOT FOUND"
+            fi
+          done
           
           ./configure \
             --extra-version=universal-$(date +%Y-%m-%d) \
