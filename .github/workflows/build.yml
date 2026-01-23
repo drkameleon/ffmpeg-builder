@@ -1,4 +1,4 @@
-name: Build Universal FFmpeg
+name: Build Universal FFmpeg (LGPL)
 
 on:
   push:
@@ -28,22 +28,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Build Dependencies
+        run: |
+          brew install python-setuptools meson ninja
+
       - name: Build FFmpeg natively for ${{ matrix.arch }}
         run: |
-          chmod +x build-ffmpeg
-          # This script builds ALL dependencies from source as static libs
-          SKIPINSTALL=yes ./build-ffmpeg --build
+          chmod +x build-ffmpeg-lgpl
+          SKIPINSTALL=yes ./build-ffmpeg-lgpl --build
           
-          # Get version
+          # Get version and verify
           FFMPEG_VERSION=$(./workspace/bin/ffmpeg -version | head -n1 | cut -d' ' -f3)
           echo "FFMPEG_VERSION=$FFMPEG_VERSION" > ffmpeg_version.txt
           
           echo "🔍 Built binary architecture:"
           lipo -info ./workspace/bin/ffmpeg
           
-          echo "🔍 Checking dynamic dependencies:"
+          echo "🔍 Checking dynamic dependencies (should be minimal):"
           otool -L ./workspace/bin/ffmpeg | head -20
           
+          echo "🔍 Verifying LGPL license:"
+          ./workspace/bin/ffmpeg -L | head -30
+          
+          # Copy binaries
           cp ./workspace/bin/ffmpeg ffmpeg-${{ matrix.arch }}
           cp ./workspace/bin/ffprobe ffprobe-${{ matrix.arch }}
 
@@ -55,7 +62,7 @@ jobs:
             ffmpeg-${{ matrix.arch }}
             ffprobe-${{ matrix.arch }}
             ffmpeg_version.txt
-          retention-days: 1
+          retention-days: 7
 
   create-universal-binary:
     name: Create Universal Binary
@@ -77,7 +84,7 @@ jobs:
 
       - name: Read FFmpeg version
         run: |
-          FFMPEG_VERSION=$(cat ./arm64/ffmpeg_version.txt)
+          FFMPEG_VERSION=$(cat ./arm64/ffmpeg_version.txt | cut -d' ' -f1)
           echo "FFMPEG_VERSION=$FFMPEG_VERSION" >> $GITHUB_ENV
 
       - name: Create universal binaries
@@ -98,40 +105,93 @@ jobs:
           echo ""
           echo "📊 Testing ffmpeg..."
           ./ffmpeg -version
+          
+          echo ""
+          echo "📜 Verifying LGPL license:"
+          ./ffmpeg -L | grep -A 10 "FFmpeg is free software"
 
       - name: Create archives
         run: |
-          mkdir -p ffmpeg-universal-macos
-          cp ffmpeg ffmpeg-universal-macos/
-          cp ffprobe ffmpeg-universal-macos/
-          ./ffmpeg -version > ffmpeg-universal-macos/VERSION.txt
+          mkdir -p ffmpeg-universal-macos-lgpl
+          cp ffmpeg ffmpeg-universal-macos-lgpl/
+          cp ffprobe ffmpeg-universal-macos-lgpl/
+          ./ffmpeg -version > ffmpeg-universal-macos-lgpl/VERSION.txt
+          ./ffmpeg -L > ffmpeg-universal-macos-lgpl/LICENSE.txt
           
-          tar -czf ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos/
-          zip -r ffmpeg-universal-macos.zip ffmpeg-universal-macos/
+          # Create README
+          cat > ffmpeg-universal-macos-lgpl/README.txt << 'EOF'
+FFmpeg Universal Binary (LGPL)
+==============================
+
+This is a LGPL-only build of FFmpeg for macOS (universal: arm64 + x86_64).
+
+LGPL-compatible codecs included:
+- Video: VP8, VP9 (libvpx), AV1 (libaom, libdav1d), Theora
+- Audio: Opus, Vorbis, Theora, MP3 (libmp3lame), AAC (native), AMR
+- Filters: zimg, libass (subtitles)
+- Formats: MP4, WebM, OGG, and many more
+
+NOT included (require GPL or non-free):
+- libx264, libx265 (GPL)
+- libfdk-aac (non-free)
+- libxvid (GPL)
+
+For file conversion only - no network protocols (SRT, RTMP) included.
+
+Usage:
+  ./ffmpeg -i input.mp4 output.webm
+  ./ffmpeg -i input.avi -c:v libvpx-vp9 -c:a libopus output.webm
+  ./ffprobe input.mp4
+
+See LICENSE.txt for full license text.
+EOF
+          
+          tar -czf ffmpeg-universal-macos-lgpl.tar.gz ffmpeg-universal-macos-lgpl/
+          zip -r ffmpeg-universal-macos-lgpl.zip ffmpeg-universal-macos-lgpl/
 
       - name: Generate checksums
         run: |
-          shasum -a 256 ffmpeg-universal-macos.tar.gz ffmpeg-universal-macos.zip > checksums.sha256
+          shasum -a 256 ffmpeg-universal-macos-lgpl.tar.gz ffmpeg-universal-macos-lgpl.zip > checksums.sha256
           cat checksums.sha256
 
       - name: Upload universal binaries
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-universal-macos-${{ env.FFMPEG_VERSION }}
+          name: ffmpeg-universal-macos-lgpl-${{ env.FFMPEG_VERSION }}
           path: |
-            ffmpeg-universal-macos.tar.gz
-            ffmpeg-universal-macos.zip
+            ffmpeg-universal-macos-lgpl.tar.gz
+            ffmpeg-universal-macos-lgpl.zip
             checksums.sha256
 
       - name: Create Release
         if: github.event.inputs.doRelease == 'true' || startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ffmpeg-${{ env.FFMPEG_VERSION }}-universal
-          name: FFmpeg ${{ env.FFMPEG_VERSION }} Universal macOS
+          tag_name: ffmpeg-${{ env.FFMPEG_VERSION }}-universal-lgpl
+          name: FFmpeg ${{ env.FFMPEG_VERSION }} Universal macOS (LGPL)
+          body: |
+            FFmpeg ${{ env.FFMPEG_VERSION }} - Universal macOS Binary (LGPL-only)
+            
+            **LGPL-compatible codecs only** - suitable for commercial use without GPL restrictions.
+            
+            Includes:
+            - Video: VP8, VP9, AV1 (AOM/dav1d), Theora
+            - Audio: Opus, Vorbis, MP3, AAC, AMR
+            - Filters: zimg, libass (subtitles)
+            - Static build (no external dependencies)
+            - Universal binary (arm64 + x86_64)
+            
+            Does NOT include GPL codecs (x264, x265) or non-free codecs (fdk-aac).
+            
+            **Usage:**
+            ```bash
+            ./ffmpeg -i input.mp4 -c:v libvpx-vp9 -c:a libopus output.webm
+            ```
+            
+            See README.txt in the archive for more details.
           files: |
-            ffmpeg-universal-macos.tar.gz
-            ffmpeg-universal-macos.zip
+            ffmpeg-universal-macos-lgpl.tar.gz
+            ffmpeg-universal-macos-lgpl.zip
             checksums.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
