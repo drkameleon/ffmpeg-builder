@@ -28,6 +28,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug - Check Homebrew libraries
+        run: |
+          echo "=== Checking for Homebrew X11 libraries ==="
+          ls -la /usr/local/opt/libxcb 2>/dev/null || echo "✅ No libxcb"
+          ls -la /usr/local/opt/libx11 2>/dev/null || echo "✅ No libx11"
+          ls -la /usr/local/opt/xz 2>/dev/null || echo "✅ No xz"
+          
+          echo ""
+          echo "=== Homebrew paths in environment ==="
+          env | grep -i homebrew || echo "✅ No Homebrew in env"
+          
+          echo ""
+          echo "=== Library search paths ==="
+          echo $DYLD_LIBRARY_PATH
+          echo $LD_LIBRARY_PATH
+
       - name: Build FFmpeg natively for ${{ matrix.arch }}
         run: |
           chmod +x build-ffmpeg
