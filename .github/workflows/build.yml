@@ -22,7 +22,7 @@ jobs:
           - arch: arm64
             runner: macos-15
           - arch: x86_64
-            runner: macos-15-intel
+            runner: macos-13
     
     steps:
       - name: Checkout
@@ -37,20 +37,18 @@ jobs:
           chmod +x build-ffmpeg-lgpl
           SKIPINSTALL=yes ./build-ffmpeg-lgpl --build
           
-          # Get version and verify
           FFMPEG_VERSION=$(./workspace/bin/ffmpeg -version | head -n1 | cut -d' ' -f3)
           echo "FFMPEG_VERSION=$FFMPEG_VERSION" > ffmpeg_version.txt
           
-          echo "🔍 Built binary architecture:"
+          echo "Built binary architecture:"
           lipo -info ./workspace/bin/ffmpeg
           
-          echo "🔍 Checking dynamic dependencies (should be minimal):"
+          echo "Checking dynamic dependencies:"
           otool -L ./workspace/bin/ffmpeg | head -20
           
-          echo "🔍 Verifying LGPL license:"
+          echo "Verifying LGPL license:"
           ./workspace/bin/ffmpeg -L | head -30
           
-          # Copy binaries
           cp ./workspace/bin/ffmpeg ffmpeg-${{ matrix.arch }}
           cp ./workspace/bin/ffprobe ffprobe-${{ matrix.arch }}
 
@@ -94,20 +92,20 @@ jobs:
           
           chmod +x ffmpeg ffprobe
           
-          echo "🔍 Verifying universal binaries..."
+          echo "Verifying universal binaries..."
           lipo -info ffmpeg
           lipo -info ffprobe
           
           echo ""
-          echo "🔍 Checking dynamic dependencies:"
+          echo "Checking dynamic dependencies:"
           otool -L ffmpeg
           
           echo ""
-          echo "📊 Testing ffmpeg..."
+          echo "Testing ffmpeg..."
           ./ffmpeg -version
           
           echo ""
-          echo "📜 Verifying LGPL license:"
+          echo "Verifying LGPL license:"
           ./ffmpeg -L | grep -A 10 "FFmpeg is free software"
 
       - name: Create archives
@@ -118,33 +116,32 @@ jobs:
           ./ffmpeg -version > ffmpeg-universal-macos-lgpl/VERSION.txt
           ./ffmpeg -L > ffmpeg-universal-macos-lgpl/LICENSE.txt
           
-          # Create README
           cat > ffmpeg-universal-macos-lgpl/README.txt << 'EOF'
-FFmpeg Universal Binary (LGPL)
-==============================
-
-This is a LGPL-only build of FFmpeg for macOS (universal: arm64 + x86_64).
-
-LGPL-compatible codecs included:
-- Video: VP8, VP9 (libvpx), AV1 (libaom, libdav1d), Theora
-- Audio: Opus, Vorbis, Theora, MP3 (libmp3lame), AAC (native), AMR
-- Filters: zimg, libass (subtitles)
-- Formats: MP4, WebM, OGG, and many more
-
-NOT included (require GPL or non-free):
-- libx264, libx265 (GPL)
-- libfdk-aac (non-free)
-- libxvid (GPL)
-
-For file conversion only - no network protocols (SRT, RTMP) included.
-
-Usage:
-  ./ffmpeg -i input.mp4 output.webm
-  ./ffmpeg -i input.avi -c:v libvpx-vp9 -c:a libopus output.webm
-  ./ffprobe input.mp4
-
-See LICENSE.txt for full license text.
-EOF
+          FFmpeg Universal Binary (LGPL)
+          ==============================
+          
+          This is a LGPL-only build of FFmpeg for macOS (universal: arm64 + x86_64).
+          
+          LGPL-compatible codecs included:
+          - Video: VP8, VP9 (libvpx), AV1 (libaom, libdav1d), Theora
+          - Audio: Opus, Vorbis, Theora, MP3 (libmp3lame), AAC (native), AMR
+          - Filters: zimg, libass (subtitles)
+          - Formats: MP4, WebM, OGG, and many more
+          
+          NOT included (require GPL or non-free):
+          - libx264, libx265 (GPL)
+          - libfdk-aac (non-free)
+          - libxvid (GPL)
+          
+          For file conversion only - no network protocols (SRT, RTMP) included.
+          
+          Usage:
+            ./ffmpeg -i input.mp4 output.webm
+            ./ffmpeg -i input.avi -c:v libvpx-vp9 -c:a libopus output.webm
+            ./ffprobe input.mp4
+          
+          See LICENSE.txt for full license text.
+          EOF
           
           tar -czf ffmpeg-universal-macos-lgpl.tar.gz ffmpeg-universal-macos-lgpl/
           zip -r ffmpeg-universal-macos-lgpl.zip ffmpeg-universal-macos-lgpl/
