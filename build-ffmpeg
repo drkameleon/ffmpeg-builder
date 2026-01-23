@@ -1153,6 +1153,7 @@ execute ./configure "${CONFIGURE_OPTIONS[@]}" \
   --enable-version3 \
   --disable-xlib \
   --disable-libxcb \
+  --disable-lzma \
   --extra-cflags="${CFLAGS}" \
   --extra-ldexeflags="${LDEXEFLAGS}" \
   --extra-ldflags="${LDFLAGS} -L${WORKSPACE}/lib" \
