@@ -1151,14 +1151,21 @@ execute ./configure "${CONFIGURE_OPTIONS[@]}" \
   --enable-pthreads \
   --enable-static \
   --enable-version3 \
+  --disable-xlib \
+  --disable-libxcb \
   --extra-cflags="${CFLAGS}" \
   --extra-ldexeflags="${LDEXEFLAGS}" \
-  --extra-ldflags="${LDFLAGS}" \
+  --extra-ldflags="${LDFLAGS} -L${WORKSPACE}/lib" \
   --extra-libs="${EXTRALIBS}" \
   --pkgconfigdir="$WORKSPACE/lib/pkgconfig" \
   --pkg-config-flags="--static" \
   --prefix="${WORKSPACE}" \
   --extra-version="${EXTRA_VERSION}"
+
+export DYLD_LIBRARY_PATH=""
+export LD_LIBRARY_PATH=""
+unset HOMEBREW_PREFIX
+unset HOMEBREW_CELLAR
 
 execute make -j $MJOBS
 execute make install
